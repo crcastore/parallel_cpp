@@ -57,6 +57,44 @@
             ],
             "dependsOn": "CMake: Build",
             "problemMatcher": []
+        },
+        {
+            "label": "Run: unit_tests (ASan+UBSan)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/unit_tests",
+            "args": [],
+            "dependsOn": "CMake: Build",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run: worker_integration_test (ASan+UBSan)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/worker_integration_test",
+            "args": [],
+            "dependsOn": "CMake: Build",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run: worker_tsan_test (TSan+UBSan)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/worker_tsan_test",
+            "args": [],
+            "dependsOn": "CMake: Build",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run: all tests",
+            "dependsOn": [
+                "Run: unit_tests (ASan+UBSan)",
+                "Run: worker_integration_test (ASan+UBSan)",
+                "Run: worker_tsan_test (TSan+UBSan)"
+            ],
+            "dependsOrder": "sequence",
+            "group": "test",
+            "problemMatcher": []
         }
     ]
 }

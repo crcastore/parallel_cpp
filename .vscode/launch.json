@@ -68,6 +68,42 @@
             "externalConsole": false,
             "MIMode": "lldb",
             "preLaunchTask": "CMake: Build"
+        },
+        {
+            "name": "Run unit_tests (ASan+UBSan)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/unit_tests",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: Build"
+        },
+        {
+            "name": "Run worker_integration_test (ASan+UBSan)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/worker_integration_test",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: Build"
+        },
+        {
+            "name": "Run worker_tsan_test (TSan+UBSan)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/worker_tsan_test",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: Build"
         }
     ]
 }

@@ -14,10 +14,9 @@
 
 WorkerProcess::WorkerProcess(std::string pythonExe, std::string scriptPath)
     : pythonExe_(std::move(pythonExe)),
-      scriptPath_(std::move(scriptPath)),
-      childPid_(-1),
-      childInFd_(-1),
-      childOutFd_(-1) {}
+      scriptPath_(std::move(scriptPath))
+{
+}
 
 WorkerProcess::~WorkerProcess()
 {
