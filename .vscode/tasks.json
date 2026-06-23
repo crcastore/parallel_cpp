@@ -1,0 +1,62 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake: Configure",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-S",
+                ".",
+                "-B",
+                "build"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build",
+                "-j"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": "CMake: Configure",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Run: parallel_python",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/parallel_python",
+            "args": [
+                "--rows",
+                "3000",
+                "--cols",
+                "6"
+            ],
+            "dependsOn": "CMake: Build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run: parallel_python (large)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/parallel_python",
+            "args": [
+                "--rows",
+                "200000",
+                "--cols",
+                "8"
+            ],
+            "dependsOn": "CMake: Build",
+            "problemMatcher": []
+        }
+    ]
+}

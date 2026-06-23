@@ -1,0 +1,73 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run parallel_python",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/parallel_python",
+            "args": [
+                "--rows",
+                "3000",
+                "--cols",
+                "6"
+            ],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: Build"
+        },
+        {
+            "name": "Debug parallel_python",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/parallel_python",
+            "args": [
+                "--rows",
+                "3000",
+                "--cols",
+                "6"
+            ],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: Build"
+        },
+        {
+            "name": "Run parallel_python (large)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/parallel_python",
+            "args": [
+                "--rows",
+                "40000",
+                "--cols",
+                "9"
+            ],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: Build"
+        },
+        {
+            "name": "Debug parallel_python (large)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/parallel_python",
+            "args": [
+                "--rows",
+                "20000",
+                "--cols",
+                "9"
+            ],
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: Build"
+        }
+    ]
+}

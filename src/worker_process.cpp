@@ -164,7 +164,8 @@ std::vector<double> WorkerProcess::process_chunk(
     std::size_t taskId,
     const double* data,
     std::size_t rows,
-    std::size_t cols
+    std::size_t cols,
+    std::size_t& resultCols
 ) {
     if (childPid_ <= 0 || childInFd_ < 0 || childOutFd_ < 0) {
         throw std::runtime_error("Worker is not started.");
@@ -217,8 +218,14 @@ std::vector<double> WorkerProcess::process_chunk(
         throw std::runtime_error("Worker response row count mismatch.");
     }
 
-    std::vector<double> values(rows, 0.0);
-    if (rows > 0 && !read_exact(values.data(), rows * sizeof(double))) {
+    resultCols = static_cast<std::size_t>(response.colsOrAux);
+    if (resultCols == 0) {
+        throw std::runtime_error("Worker response has zero result columns.");
+    }
+
+    const std::size_t totalResults = rows * resultCols;
+    std::vector<double> values(totalResults, 0.0);
+    if (totalResults > 0 && !read_exact(values.data(), totalResults * sizeof(double))) {
         throw std::runtime_error("Failed to read worker result payload.");
     }
     return values;
