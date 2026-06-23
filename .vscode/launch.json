@@ -42,7 +42,7 @@
             "program": "${workspaceFolder}/build/parallel_python",
             "args": [
                 "--rows",
-                "40000",
+                "4000",
                 "--cols",
                 "9"
             ],

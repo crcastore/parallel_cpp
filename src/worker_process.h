@@ -31,6 +31,6 @@ private:
 
     std::string pythonExe_{}, scriptPath_;
     pid_t childPid_{-1};
-    int childInFd_{-1}, ;
+    int childInFd_{-1};
     int childOutFd_{-1};
 };
