@@ -1,0 +1,66 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        test-target: [unit_tests, worker_integration_test, worker_tsan_test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up CMake
+      uses: jwlawson/actions-setup-cmake@v1.14
+      with:
+        cmake-version: '3.16'
+    
+    - name: Verify Python
+      run: python3 --version
+    
+    - name: Create build directory
+      run: mkdir -p build
+    
+    - name: Configure CMake
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build all targets
+      run: cmake --build build -j
+    
+    - name: Run ${{ matrix.test-target }}
+      run: ./build/${{ matrix.test-target }}
+    
+    - name: Run all tests via CTest
+      if: matrix.test-target == 'unit_tests'
+      run: cd build && ctest --output-on-failure
+
+  main-app:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up CMake
+      uses: jwlawson/actions-setup-cmake@v1.14
+      with:
+        cmake-version: '3.16'
+    
+    - name: Create build directory
+      run: mkdir -p build
+    
+    - name: Configure CMake
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build main executable
+      run: cmake --build build -j
+    
+    - name: Run main application (smoke test)
+      run: ./build/parallel_python --rows 1000 --cols 4
