@@ -3,6 +3,12 @@
 #include <cstddef>
 #include <vector>
 
+struct DataView {
+    const double* data;
+    std::size_t rows;
+    std::size_t cols;
+};
+
 class RowMajorDataset {
 public:
     RowMajorDataset(std::size_t rows, std::size_t cols)

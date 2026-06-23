@@ -6,6 +6,9 @@
 #include <sys/types.h>
 #include <vector>
 
+#include "dataset.h"
+#include "protocol.h"
+
 class WorkerProcess
 {
 public:
@@ -20,14 +23,16 @@ public:
 
     std::vector<double> process_chunk(
         std::size_t taskId,
-        const double *data,
-        std::size_t rows,
-        std::size_t cols,
+        const DataView &input,
         std::size_t &resultCols);
 
 private:
     bool write_exact(const void *buf, std::size_t len);
     bool read_exact(void *buf, std::size_t len);
+    std::vector<double> handle_response(
+        const MessageHeader &response,
+        const DataView &input,
+        std::size_t &resultCols);
 
     std::string pythonExe_{}, scriptPath_;
     pid_t childPid_{-1};

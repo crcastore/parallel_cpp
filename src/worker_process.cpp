@@ -160,9 +160,7 @@ bool WorkerProcess::read_exact(void *buf, std::size_t len)
 
 std::vector<double> WorkerProcess::process_chunk(
     std::size_t taskId,
-    const double *data,
-    std::size_t rows,
-    std::size_t cols,
+    const DataView &input,
     std::size_t &resultCols)
 {
     if (childPid_ <= 0 || childInFd_ < 0 || childOutFd_ < 0)
@@ -175,15 +173,15 @@ std::vector<double> WorkerProcess::process_chunk(
         kVersion,
         static_cast<std::uint16_t>(MessageType::Task),
         static_cast<std::uint64_t>(taskId),
-        static_cast<std::uint64_t>(rows),
-        static_cast<std::uint64_t>(cols)};
+        static_cast<std::uint64_t>(input.rows),
+        static_cast<std::uint64_t>(input.cols)};
     if (!write_exact(&request, sizeof(request)))
     {
         throw std::runtime_error("Failed to write task header to worker.");
     }
 
-    const std::size_t total = rows * cols;
-    if (total > 0 && !write_exact(data, total * sizeof(double)))
+    const std::size_t total = input.rows * input.cols;
+    if (total > 0 && !write_exact(input.data, total * sizeof(double)))
     {
         throw std::runtime_error("Failed to write task payload to worker.");
     }
@@ -204,7 +202,17 @@ std::vector<double> WorkerProcess::process_chunk(
         throw std::runtime_error("Worker response task id mismatch.");
     }
 
-    if (response.type == static_cast<std::uint16_t>(MessageType::Error))
+    return handle_response(response, input, resultCols);
+}
+
+std::vector<double> WorkerProcess::handle_response(
+    const MessageHeader &response,
+    const DataView &input,
+    std::size_t &resultCols)
+{
+    switch (static_cast<MessageType>(response.type))
+    {
+    case MessageType::Error:
     {
         const std::size_t msgLen = static_cast<std::size_t>(response.colsOrAux);
         std::string msg(msgLen, '\0');
@@ -215,27 +223,29 @@ std::vector<double> WorkerProcess::process_chunk(
         throw std::runtime_error("Worker error: " + msg);
     }
 
-    if (response.type != static_cast<std::uint16_t>(MessageType::Result))
+    case MessageType::Result:
     {
+        if (response.rows != static_cast<std::uint64_t>(input.rows))
+        {
+            throw std::runtime_error("Worker response row count mismatch.");
+        }
+
+        resultCols = static_cast<std::size_t>(response.colsOrAux);
+        if (resultCols == 0)
+        {
+            throw std::runtime_error("Worker response has zero result columns.");
+        }
+
+        const std::size_t totalResults = input.rows * resultCols;
+        std::vector<double> values(totalResults, 0.0);
+        if (totalResults > 0 && !read_exact(values.data(), totalResults * sizeof(double)))
+        {
+            throw std::runtime_error("Failed to read worker result payload.");
+        }
+        return values;
+    }
+
+    default:
         throw std::runtime_error("Unexpected worker response type.");
     }
-
-    if (response.rows != static_cast<std::uint64_t>(rows))
-    {
-        throw std::runtime_error("Worker response row count mismatch.");
-    }
-
-    resultCols = static_cast<std::size_t>(response.colsOrAux);
-    if (resultCols == 0)
-    {
-        throw std::runtime_error("Worker response has zero result columns.");
-    }
-
-    const std::size_t totalResults = rows * resultCols;
-    std::vector<double> values(totalResults, 0.0);
-    if (totalResults > 0 && !read_exact(values.data(), totalResults * sizeof(double)))
-    {
-        throw std::runtime_error("Failed to read worker result payload.");
-    }
-    return values;
 }

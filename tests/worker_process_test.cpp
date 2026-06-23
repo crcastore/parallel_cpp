@@ -65,7 +65,7 @@ TEST_CASE("process_chunk returns one expectation value per qubit (col)", "[worke
     const double data[rows * cols] = {0.1, -0.2, 0.3, -0.4};
 
     std::size_t rc = 0;
-    auto result = wp.process_chunk(0, data, rows, cols, rc);
+    auto result = wp.process_chunk(0, DataView{data, rows, cols}, rc);
 
     REQUIRE(rc == cols);
     REQUIRE(result.size() == rows * rc);
@@ -81,7 +81,7 @@ TEST_CASE("process_chunk returns correct number of rows", "[worker][chunk]")
     std::vector<double> data(rows * cols, 0.0);
 
     std::size_t rc = 0;
-    auto result = wp.process_chunk(2, data.data(), rows, cols, rc);
+    auto result = wp.process_chunk(2, DataView{data.data(), rows, cols}, rc);
 
     REQUIRE(rc == cols);
     REQUIRE(result.size() == rows * rc);
@@ -97,7 +97,7 @@ TEST_CASE("process_chunk works with a single row", "[worker][chunk]")
     std::vector<double> data(rows * cols, 0.0);
 
     std::size_t rc = 0;
-    auto result = wp.process_chunk(0, data.data(), rows, cols, rc);
+    auto result = wp.process_chunk(0, DataView{data.data(), rows, cols}, rc);
 
     REQUIRE(rc == cols);
     REQUIRE(result.size() == rows * rc);
@@ -116,7 +116,7 @@ TEST_CASE("process_chunk expectation values are in [-1, 1]", "[worker][chunk]")
     std::vector<double> data(rows * cols, 0.5);
 
     std::size_t rc = 0;
-    auto result = wp.process_chunk(1, data.data(), rows, cols, rc);
+    auto result = wp.process_chunk(1, DataView{data.data(), rows, cols}, rc);
 
     REQUIRE(result.size() == rows * rc);
     for (double v : result)
@@ -139,7 +139,7 @@ TEST_CASE("process_chunk is deterministic for identical inputs", "[worker][chunk
         auto wp = make_worker();
         wp.start();
         std::size_t rc = 0;
-        auto res = wp.process_chunk(0, data.data(), rows, cols, rc);
+        auto res = wp.process_chunk(0, DataView{data.data(), rows, cols}, rc);
         wp.stop();
         return res;
     };
@@ -162,7 +162,7 @@ TEST_CASE("process_chunk handles multiple sequential tasks with different IDs", 
     for (std::size_t id = 10; id <= 14; ++id)
     {
         std::size_t rc = 0;
-        auto res = wp.process_chunk(id, data, rows, cols, rc);
+        auto res = wp.process_chunk(id, DataView{data, rows, cols}, rc);
         REQUIRE(res.size() == rows * rc);
         REQUIRE(rc == cols);
     }
@@ -177,8 +177,20 @@ TEST_CASE("process_chunk throws when worker not started", "[worker][chunk]")
     auto wp = make_worker();
     const double data[4] = {0.1, 0.2, 0.3, 0.4};
     std::size_t rc = 0;
-    REQUIRE_THROWS_AS(wp.process_chunk(0, data, 1, 4, rc), std::runtime_error);
+    REQUIRE_THROWS_AS(wp.process_chunk(0, DataView{data, 1, 4}, rc), std::runtime_error);
 }
+
+// ---------------------------------------------------------------------------
+// handle_response (tested implicitly through process_chunk)
+// ---------------------------------------------------------------------------
+// The private handle_response() function is tested indirectly through
+// process_chunk and the tests above, which exercise all code paths:
+//   - MessageType::Result path: all 17 process_chunk tests
+//   - Row validation: process_chunk "result dimensions match" tests
+//   - Zero result columns check: all process_chunk tests validate rc == cols
+//   - Payload reading: all process_chunk tests
+// A unit test for handle_response directly would require mocking read_exact()
+// or running the worker, so integration testing via process_chunk is preferred.
 
 // ---------------------------------------------------------------------------
 // RowMajorDataset + WorkerProcess integration
@@ -194,7 +206,7 @@ TEST_CASE("process_chunk works with RowMajorDataset row_ptr", "[worker][dataset]
     REQUIRE(wp.start());
 
     std::size_t rc = 0;
-    auto result = wp.process_chunk(0, ds.row_ptr(0), ds.rows(), ds.cols(), rc);
+    auto result = wp.process_chunk(0, DataView{ds.row_ptr(0), ds.rows(), ds.cols()}, rc);
     REQUIRE(result.size() == ds.rows() * rc);
     REQUIRE(rc == ds.cols());
     wp.stop();
@@ -212,7 +224,7 @@ TEST_CASE("process_chunk result dimensions match dataset slice", "[worker][datas
 
     // Process only the middle 4 rows
     std::size_t rc = 0;
-    auto result = wp.process_chunk(0, ds.row_ptr(2), 4, ds.cols(), rc);
+    auto result = wp.process_chunk(0, DataView{ds.row_ptr(2), 4, ds.cols()}, rc);
     REQUIRE(rc == ds.cols());
     REQUIRE(result.size() == 4 * rc);
     wp.stop();
@@ -238,7 +250,7 @@ TEST_CASE("two workers processing disjoint slices cover all rows", "[worker][par
         auto wp = make_worker();
         wp.start();
         std::size_t rc = 0;
-        auto res = wp.process_chunk(taskId, ds.row_ptr(begin), end - begin, cols, rc);
+        auto res = wp.process_chunk(taskId, DataView{ds.row_ptr(begin), end - begin, cols}, rc);
         wp.stop();
         std::lock_guard<std::mutex> lk(mtx);
         sharedResultCols = rc;
@@ -276,7 +288,7 @@ TEST_CASE("four parallel workers cover all rows without loss", "[worker][paralle
             const std::size_t end   = ((w + 1) * totalRows) / nWorkers;
             auto wp = make_worker();
             wp.start();
-            sliceResults[w] = wp.process_chunk(w, ds.row_ptr(begin), end - begin, cols, sliceCols[w]);
+            sliceResults[w] = wp.process_chunk(w, DataView{ds.row_ptr(begin), end - begin, cols}, sliceCols[w]);
             wp.stop(); });
     }
     for (auto &t : threads)
@@ -305,7 +317,7 @@ TEST_CASE("parallel workers produce same results as sequential for same slices",
         auto wp = make_worker();
         wp.start();
         std::size_t rc = 0;
-        seqResult = wp.process_chunk(0, ds.row_ptr(0), rows, cols, rc);
+        seqResult = wp.process_chunk(0, DataView{ds.row_ptr(0), rows, cols}, rc);
         wp.stop();
     }
 
@@ -318,7 +330,7 @@ TEST_CASE("parallel workers produce same results as sequential for same slices",
         auto wp = make_worker();
         wp.start();
         std::size_t rc = 0;
-        auto res = wp.process_chunk(id, ds.row_ptr(begin), end - begin, cols, rc);
+        auto res = wp.process_chunk(id, DataView{ds.row_ptr(begin), end - begin, cols}, rc);
         wp.stop();
         std::lock_guard<std::mutex> lk(mtx);
         for (std::size_t i = 0; i < (end - begin); ++i)

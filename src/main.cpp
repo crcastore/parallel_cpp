@@ -126,13 +126,10 @@ RunResult run_once(
                 const std::size_t endRow = ((workerId + 1) * cfg.rows) / threadCount;
                 const std::size_t rowCount = endRow - beginRow;
 
-                const double* chunkData = dataset.row_ptr(beginRow);
                 std::size_t chunkResultCols = 0;
                 std::vector<double> chunkResult = worker.process_chunk(
                     workerId,
-                    chunkData,
-                    rowCount,
-                    cfg.cols,
+                    DataView{dataset.row_ptr(beginRow), rowCount, cfg.cols},
                     chunkResultCols
                 );
 
