@@ -16,6 +16,9 @@ struct Worker
 {
     std::string pythonExe;
     std::string scriptPath;
+    bool pinWorkersToSingleCpu = false;
+    std::size_t cpuStart = 0;
+    std::size_t cpuStride = 1;
 
     // Processes one chunk and writes output column count into resultCols.
     std::vector<double> operator()(std::size_t taskId, const DataView &input, std::size_t &resultCols) const;

@@ -4,10 +4,15 @@
 #include <cstdint>
 #include <cstring>
 #include <future>
+#include <limits>
 #include <stdexcept>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#ifdef __linux__
+#include <sched.h>
+#endif
 
 #include "protocol.h"
 
@@ -15,7 +20,7 @@
 class WorkerProcessImpl
 {
 public:
-    WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath);
+    WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath, int cpuToPin);
     ~WorkerProcessImpl();
 
     WorkerProcessImpl(const WorkerProcessImpl &) = delete;
@@ -32,7 +37,7 @@ private:
     int childOutFd_{-1};
 };
 
-WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath)
+WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath, int cpuToPin)
 {
     int toChild[2], fromChild[2];
     const auto close_pipe_pair = [](int (&fds)[2])
@@ -56,6 +61,28 @@ WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::st
 
     if (childPid_ == 0)
     {
+#ifdef __linux__
+        if (cpuToPin >= 0)
+        {
+            const long cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
+            if (cpuCount <= 0)
+            {
+                _exit(126);
+            }
+
+            cpu_set_t cpuset;
+            CPU_ZERO(&cpuset);
+            CPU_SET(static_cast<int>(cpuToPin % static_cast<int>(cpuCount)), &cpuset);
+
+            if (sched_setaffinity(0, sizeof(cpuset), &cpuset) != 0)
+            {
+                _exit(126);
+            }
+        }
+#else
+        (void)cpuToPin;
+#endif
+
         dup2(toChild[0], STDIN_FILENO);
         dup2(fromChild[1], STDOUT_FILENO);
         for (int fd : {toChild[0], toChild[1], fromChild[0], fromChild[1]})
@@ -165,13 +192,39 @@ std::vector<double> Worker::operator()(std::size_t taskId, const DataView &input
     static thread_local std::unique_ptr<WorkerProcessImpl> impl;
     static thread_local std::string activePythonExe;
     static thread_local std::string activeScriptPath;
+    static thread_local bool activePinWorkersToSingleCpu = false;
+    static thread_local std::size_t activeCpuStart = 0;
+    static thread_local std::size_t activeCpuStride = 1;
+    static thread_local int activeCpuToPin = -1;
 
-    const bool configChanged = (activePythonExe != pythonExe) || (activeScriptPath != scriptPath);
+    int desiredCpuToPin = -1;
+    if (pinWorkersToSingleCpu)
+    {
+        const std::size_t candidate = cpuStart + taskId * cpuStride;
+        if (candidate > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        {
+            throw std::runtime_error("Requested CPU index exceeds supported range.");
+        }
+        desiredCpuToPin = static_cast<int>(candidate);
+    }
+
+    const bool configChanged =
+        (activePythonExe != pythonExe) ||
+        (activeScriptPath != scriptPath) ||
+        (activePinWorkersToSingleCpu != pinWorkersToSingleCpu) ||
+        (activeCpuStart != cpuStart) ||
+        (activeCpuStride != cpuStride) ||
+        (activeCpuToPin != desiredCpuToPin);
+
     if (!impl || configChanged)
     {
-        impl = std::make_unique<WorkerProcessImpl>(pythonExe, scriptPath);
+        impl = std::make_unique<WorkerProcessImpl>(pythonExe, scriptPath, desiredCpuToPin);
         activePythonExe = pythonExe;
         activeScriptPath = scriptPath;
+        activePinWorkersToSingleCpu = pinWorkersToSingleCpu;
+        activeCpuStart = cpuStart;
+        activeCpuStride = cpuStride;
+        activeCpuToPin = desiredCpuToPin;
     }
 
     return impl->process_chunk(taskId, input, resultCols);

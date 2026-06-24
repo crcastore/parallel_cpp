@@ -87,11 +87,26 @@ Run benchmark:
 ./build/parallel_python --rows 3000 --cols 6
 ```
 
+Run benchmark with Linux worker CPU pinning enabled:
+
+```bash
+./build/parallel_python --rows 3000 --cols 6 \
+    --pin-workers-single-cpu --cpu-start 0 --cpu-stride 1
+```
+
 ## Notes on Determinism and Performance
 
 - Input generation in C++ is seeded.
 - Python worker is configured to reduce thread oversubscription.
 - Quantum simulation uses explicit seeding and fixed shots for reproducible tests.
+
+CPU pinning and NUMA notes:
+
+- Pinning each worker to one CPU can reduce scheduler migrations and improve cache locality.
+- This can help on NUMA systems when each worker is mostly CPU-bound and memory reuse is local.
+- It is not universally faster: strict pinning can hurt if load is imbalanced or if worker count exceeds available physical cores.
+- Current implementation applies Linux-only affinity (`sched_setaffinity`) in the child before launching Python.
+- On non-Linux systems, pinning flags are accepted but affinity is a no-op.
 
 ## Direction for Reusable Utility Evolution
 

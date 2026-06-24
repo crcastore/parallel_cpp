@@ -24,12 +24,20 @@ struct Args
     std::size_t cols = 6;
     std::string pythonExe = "python3";
     std::string script = WORKER_SCRIPT_PATH;
+    bool pinWorkersToSingleCpu = false;
+    std::size_t cpuStart = 0;
+    std::size_t cpuStride = 1;
 };
 
 // Prints command-line usage.
 void print_usage()
 {
-    std::cout << "Usage: parallel_python [--rows N] [--cols N] [--python PATH] [--worker-script PATH]\n";
+    std::cout
+        << "Usage: parallel_python [--rows N] [--cols N] [--python PATH] [--worker-script PATH] [options]\n"
+        << "Options:\n"
+        << "  --pin-workers-single-cpu   Pin each worker process to one Linux CPU (disabled by default).\n"
+        << "  --cpu-start N              Base CPU index for worker 0 when pinning (default: 0).\n"
+        << "  --cpu-stride N             CPU step between workers when pinning (default: 1).\n";
 }
 
 // Parses command-line arguments into Args.
@@ -55,11 +63,17 @@ Args parse_args(int argc, char **argv)
             args.pythonExe = argv[++i];
         else if (a == "--worker-script")
             args.script = argv[++i];
+        else if (a == "--pin-workers-single-cpu")
+            args.pinWorkersToSingleCpu = true;
+        else if (a == "--cpu-start")
+            args.cpuStart = std::stoull(argv[++i]);
+        else if (a == "--cpu-stride")
+            args.cpuStride = std::stoull(argv[++i]);
         else
             throw std::runtime_error("Unknown argument: " + std::string(a));
     }
-    if (args.rows == 0 || args.cols == 0)
-        throw std::runtime_error("rows and cols must be > 0.");
+    if (args.rows == 0 || args.cols == 0 || args.cpuStride == 0)
+        throw std::runtime_error("rows, cols, and cpu-stride must be > 0.");
     return args;
 }
 
@@ -76,7 +90,7 @@ void fill_random(Dataset &ds)
 // Runs the worker benchmark across multiple process counts.
 void run_benchmark(const Args &args, const Dataset &ds)
 {
-    const Worker worker{args.pythonExe, args.script};
+    const Worker worker{args.pythonExe, args.script, args.pinWorkersToSingleCpu, args.cpuStart, args.cpuStride};
     const DataView view{ds.data(), ds.rows(), ds.cols()};
     const std::array<std::size_t, 5> workerCounts{1, 2, 4, 8, 16};
 
