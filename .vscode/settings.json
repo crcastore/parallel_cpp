@@ -3,5 +3,10 @@
         "*.tcc": "cpp"
     },
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": true,
+    "cmake.cmakePath": "/opt/homebrew/bin/cmake",
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.buildDirectory": "${workspaceFolder}/build-cmake-tools",
+    "cmake.generator": "Unix Makefiles",
+    "cmake.buildType": "Release"
 }

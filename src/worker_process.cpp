@@ -1,5 +1,6 @@
 #include "worker_process.h"
 
+#include <array>
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -35,14 +36,14 @@ bool WorkerProcess::start()
         return true;
     }
 
-    int toChild[2];
-    int fromChild[2];
+    auto toChild = std::array<int, 2>{};
+    auto fromChild = std::array<int, 2>{};
 
-    if (pipe(toChild) != 0)
+    if (pipe(toChild.data()) != 0)
     {
         return false;
     }
-    if (pipe(fromChild) != 0)
+    if (pipe(fromChild.data()) != 0)
     {
         close(toChild[0]);
         close(toChild[1]);
@@ -95,8 +96,8 @@ bool WorkerProcess::stop()
 
     if (childInFd_ >= 0)
     {
-        const MessageHeader quit{static_cast<std::uint32_t>(Protocol::Magic), kVersion,
-                                 static_cast<std::uint16_t>(MessageType::Quit), 0, 0, 0};
+        const auto quit = MessageHeader{static_cast<std::uint32_t>(Protocol::Magic), kVersion,
+                                        static_cast<std::uint16_t>(MessageType::Quit), 0, 0, 0};
         (void)write_exact(&quit, sizeof(quit));
         close(childInFd_);
         childInFd_ = -1;
@@ -108,8 +109,8 @@ bool WorkerProcess::stop()
         childOutFd_ = -1;
     }
 
-    int status = 0;
-    int waitResult = waitpid(childPid_, &status, 0);
+    auto status = 0;
+    const auto waitResult = waitpid(childPid_, &status, 0);
     childPid_ = -1;
 
     return waitResult > 0;
@@ -117,11 +118,11 @@ bool WorkerProcess::stop()
 
 bool WorkerProcess::write_exact(const void *buf, std::size_t len)
 {
-    const char *p = static_cast<const char *>(buf);
-    std::size_t total = 0;
+    auto p = static_cast<const char *>(buf);
+    auto total = std::size_t{};
     while (total < len)
     {
-        const ssize_t wrote = write(childInFd_, p + total, len - total);
+        const auto wrote = write(childInFd_, p + total, len - total);
         if (wrote < 0)
         {
             if (errno == EINTR)
@@ -141,11 +142,11 @@ bool WorkerProcess::write_exact(const void *buf, std::size_t len)
 
 bool WorkerProcess::read_exact(void *buf, std::size_t len)
 {
-    char *p = static_cast<char *>(buf);
-    std::size_t total = 0;
+    auto p = static_cast<char *>(buf);
+    auto total = std::size_t{};
     while (total < len)
     {
-        const ssize_t got = read(childOutFd_, p + total, len - total);
+        const auto got = read(childOutFd_, p + total, len - total);
         if (got < 0)
         {
             if (errno == EINTR)
@@ -173,7 +174,7 @@ std::vector<double> WorkerProcess::process_chunk(
         throw std::runtime_error("Worker is not started.");
     }
 
-    const MessageHeader request{
+    const auto request = MessageHeader{
         static_cast<std::uint32_t>(Protocol::Magic),
         kVersion,
         static_cast<std::uint16_t>(MessageType::Task),
@@ -185,13 +186,13 @@ std::vector<double> WorkerProcess::process_chunk(
         throw std::runtime_error("Failed to write task header to worker.");
     }
 
-    const std::size_t total = input.rows * input.cols;
+    const auto total = input.rows * input.cols;
     if (total > 0 && !write_exact(input.data, total * sizeof(double)))
     {
         throw std::runtime_error("Failed to write task payload to worker.");
     }
 
-    MessageHeader response{};
+    auto response = MessageHeader{};
     if (!read_exact(&response, sizeof(response)))
     {
         throw std::runtime_error("Worker closed output unexpectedly.");
@@ -220,8 +221,8 @@ std::vector<double> WorkerProcess::handle_response(
     {
     case MessageType::Error:
     {
-        const std::size_t msgLen = static_cast<std::size_t>(response.colsOrAux);
-        std::string msg(msgLen, '\0');
+        const auto msgLen = static_cast<std::size_t>(response.colsOrAux);
+        auto msg = std::string(msgLen, '\0');
         if (msgLen > 0 && !read_exact(&msg[0], msgLen))
         {
             throw std::runtime_error("Failed to read worker error message.");
@@ -242,8 +243,8 @@ std::vector<double> WorkerProcess::handle_response(
             throw std::runtime_error("Worker response has zero result columns.");
         }
 
-        const std::size_t totalResults = input.rows * resultCols;
-        std::vector<double> values(totalResults, 0.0);
+        const auto totalResults = input.rows * resultCols;
+        auto values = std::vector<double>(totalResults, 0.0);
         if (totalResults > 0 && !read_exact(values.data(), totalResults * sizeof(double)))
         {
             throw std::runtime_error("Failed to read worker result payload.");

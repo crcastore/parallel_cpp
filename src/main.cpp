@@ -55,19 +55,19 @@ struct DatasetResult
 
 Config parse_args(int argc, char **argv)
 {
-    Config cfg;
+    auto cfg = Config{};
 
-    for (int i = 1; i < argc; ++i)
+    for (auto i = 1; i < argc; ++i)
     {
-        std::string arg = argv[i];
+        const auto arg = std::string{argv[i]};
 
-        auto readValue = [&](const std::string &name) -> std::string
+        auto readValue = [&](const auto &name)
         {
             if (i + 1 >= argc)
             {
                 throw std::runtime_error("Missing value for " + name);
             }
-            return argv[++i];
+            return std::string{argv[++i]};
         };
 
         if (arg == "--rows")
@@ -119,12 +119,12 @@ WorkerChunkResult process_worker_chunk(
 {
     WorkerProcess worker(pythonExe, workerCommand);
 
-    const std::size_t beginRow = (workerId * dataset.rows()) / workerCount;
-    const std::size_t endRow = ((workerId + 1) * dataset.rows()) / workerCount;
-    const std::size_t rowCount = endRow - beginRow;
+    const auto beginRow = (workerId * dataset.rows()) / workerCount;
+    const auto endRow = ((workerId + 1) * dataset.rows()) / workerCount;
+    const auto rowCount = endRow - beginRow;
 
-    std::size_t resultCols{};
-    std::vector<double> values = worker.process_chunk(
+    auto resultCols = std::size_t{};
+    auto values = worker.process_chunk(
         workerId,
         DataView{dataset.row_ptr(beginRow), rowCount, dataset.cols()},
         resultCols);
@@ -151,12 +151,12 @@ DatasetResult run_python_command_over_dataset(
         return DatasetResult{};
     }
 
-    const std::size_t workerCount = std::min(requestedWorkers, dataset.rows());
+    const auto workerCount = std::min(requestedWorkers, dataset.rows());
 
-    std::vector<std::future<WorkerChunkResult>> futures;
+    auto futures = std::vector<std::future<WorkerChunkResult>>{};
     futures.reserve(workerCount);
 
-    for (std::size_t workerId = 0; workerId < workerCount; ++workerId)
+    for (auto workerId = std::size_t{}; workerId < workerCount; ++workerId)
     {
         futures.emplace_back(std::async(
             std::launch::async,
@@ -166,12 +166,12 @@ DatasetResult run_python_command_over_dataset(
             }));
     }
 
-    std::size_t resultCols{};
-    std::vector<double> results;
+    auto resultCols = std::size_t{};
+    auto results = std::vector<double>{};
 
     for (auto &future : futures)
     {
-        WorkerChunkResult chunk = future.get();
+        auto chunk = future.get();
 
         if (resultCols == 0)
         {
@@ -183,10 +183,10 @@ DatasetResult run_python_command_over_dataset(
             throw std::runtime_error("Inconsistent number of result columns from worker.");
         }
 
-        for (std::size_t row = 0; row < chunk.rowCount; ++row)
+        for (auto row = std::size_t{}; row < chunk.rowCount; ++row)
         {
-            const std::size_t srcBase = row * resultCols;
-            const std::size_t dstBase = (chunk.beginRow + row) * resultCols;
+            const auto srcBase = row * resultCols;
+            const auto dstBase = (chunk.beginRow + row) * resultCols;
             std::copy_n(
                 chunk.values.begin() + srcBase,
                 resultCols,
@@ -202,17 +202,17 @@ RunResult run_once(
     const RowMajorDataset &dataset,
     std::size_t requestedWorkers)
 {
-    const std::size_t workerCount = std::min(requestedWorkers, dataset.rows());
+    const auto workerCount = std::min(requestedWorkers, dataset.rows());
 
     const auto t0 = std::chrono::steady_clock::now();
-    const DatasetResult result = run_python_command_over_dataset(
+    const auto result = run_python_command_over_dataset(
         cfg.pythonExe,
         cfg.workerScript,
         dataset,
         requestedWorkers);
 
     const auto t1 = std::chrono::steady_clock::now();
-    const double seconds = std::chrono::duration<double>(t1 - t0).count();
+    const auto seconds = std::chrono::duration<double>(t1 - t0).count();
 
     return RunResult{requestedWorkers, workerCount, result.cols, seconds};
 }
@@ -221,26 +221,26 @@ int main(int argc, char **argv)
 {
     try
     {
-        const Config cfg = parse_args(argc, argv);
+        const auto cfg = parse_args(argc, argv);
 
         std::cout << "Creating dataset: " << cfg.rows << "x" << cfg.cols << " (row-major)\n";
-        RowMajorDataset dataset(cfg.rows, cfg.cols);
+        auto dataset = RowMajorDataset{cfg.rows, cfg.cols};
 
-        std::mt19937_64 rng(kDatasetSeed);
-        std::uniform_real_distribution<double> dist(kRandomMin, kRandomMax);
-        for (std::size_t r = 0; r < cfg.rows; ++r)
+        auto rng = std::mt19937_64{kDatasetSeed};
+        auto dist = std::uniform_real_distribution<double>{kRandomMin, kRandomMax};
+        for (auto r = std::size_t{}; r < cfg.rows; ++r)
         {
-            for (std::size_t c = 0; c < cfg.cols; ++c)
+            for (auto c = std::size_t{}; c < cfg.cols; ++c)
             {
                 dataset.at(r, c) = dist(rng);
             }
         }
 
-        const std::vector<std::size_t> benchmarkWorkers{1, 2, 4, 8, 16};
-        std::vector<RunResult> timings;
+        const auto benchmarkWorkers = std::vector<std::size_t>{1, 2, 4, 8, 16};
+        auto timings = std::vector<RunResult>{};
         timings.reserve(benchmarkWorkers.size());
 
-        for (const std::size_t requestedWorkers : benchmarkWorkers)
+        for (const auto requestedWorkers : benchmarkWorkers)
         {
             timings.push_back(run_once(cfg, dataset, requestedWorkers));
         }
