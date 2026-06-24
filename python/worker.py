@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
+"""Quantum reservoir computing worker using Qiskit Aer simulator."""
+import os
+
+# Pin all threading to 1 — must be set BEFORE importing numpy/qiskit so that
+# BLAS/OpenMP libraries pick up the values at load time.
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["BLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import argparse
 from array import array
 import math
 import struct
 import sys
+
+from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
 
 MAGIC = 0x50595043  # "CPYP"
 VERSION = 1
@@ -37,76 +52,12 @@ def send_error(stdout, task_id: int, message: str) -> None:
     stdout.flush()
 
 
-def apply_ry(state, qubit: int, theta: float) -> None:
-    half = theta * 0.5
-    c = math.cos(half)
-    s = math.sin(half)
-    bit = 1 << qubit
-    dim = len(state)
-    step = bit << 1
-    for base in range(0, dim, step):
-        for offset in range(bit):
-            i0 = base + offset
-            i1 = i0 + bit
-            a0 = state[i0]
-            a1 = state[i1]
-            state[i0] = c * a0 - s * a1
-            state[i1] = s * a0 + c * a1
-
-
-def apply_rz(state, qubit: int, theta: float) -> None:
-    half = theta * 0.5
-    phase0 = complex(math.cos(-half), math.sin(-half))
-    phase1 = complex(math.cos(half), math.sin(half))
-    bit = 1 << qubit
-    for idx in range(len(state)):
-        if idx & bit:
-            state[idx] *= phase1
-        else:
-            state[idx] *= phase0
-
-
-def apply_rx(state, qubit: int, theta: float) -> None:
-    half = theta * 0.5
-    c = math.cos(half)
-    s = math.sin(half)
-    imag_s = complex(0.0, -s)
-    bit = 1 << qubit
-    dim = len(state)
-    step = bit << 1
-    for base in range(0, dim, step):
-        for offset in range(bit):
-            i0 = base + offset
-            i1 = i0 + bit
-            a0 = state[i0]
-            a1 = state[i1]
-            state[i0] = c * a0 + imag_s * a1
-            state[i1] = imag_s * a0 + c * a1
-
-
-def apply_cz(state, q0: int, q1: int) -> None:
-    b0 = 1 << q0
-    b1 = 1 << q1
-    for idx in range(len(state)):
-        if (idx & b0) and (idx & b1):
-            state[idx] = -state[idx]
-
-
-def z_expectations(state, qubits: int):
-    out = [0.0] * qubits
-    for idx, amp in enumerate(state):
-        prob = (amp.real * amp.real) + (amp.imag * amp.imag)
-        for q in range(qubits):
-            out[q] += prob if ((idx >> q) & 1) == 0 else -prob
-    return out
-
-
 def build_reservoir_params(qubits: int, layers: int, seed: int):
+    """Generate deterministic pseudo-random rotation angles for reservoir layers."""
     params = []
     for layer in range(layers):
         row = []
         for q in range(qubits):
-            # Deterministic pseudo-random angles from integer hashes.
             h = (seed + 101 * (layer + 1) + 1009 * (q + 1)) & 0xFFFFFFFF
             rx = ((h % 10007) / 10007.0) * (2.0 * math.pi)
             rz = (((h * 17 + 23) % 10009) / 10009.0) * (2.0 * math.pi)
@@ -115,44 +66,71 @@ def build_reservoir_params(qubits: int, layers: int, seed: int):
     return params
 
 
-def process_row(values, start: int, cols: int, qubits: int, layers: int, reservoir):
-    dim = 1 << qubits
-    state = [0j] * dim
-    state[0] = 1.0 + 0.0j
+def build_circuit(values, start: int, cols: int, qubits: int, layers: int, reservoir):
+    """Construct a Qiskit QuantumCircuit for one row of data."""
+    qc = QuantumCircuit(qubits, qubits)
 
     def feature_angle(index: int) -> float:
         v = values[start + (index % cols)]
         return math.pi * math.tanh(v)
 
+    # Feature encoding: RY + RZ on each qubit
     for q in range(qubits):
         theta = feature_angle(q)
-        apply_ry(state, q, theta)
-        apply_rz(state, q, 0.5 * theta)
+        qc.ry(theta, q)
+        qc.rz(0.5 * theta, q)
 
+    # Entangling layer: CZ ring
     if qubits > 1:
         for q in range(qubits):
-            apply_cz(state, q, (q + 1) % qubits)
+            qc.cz(q, (q + 1) % qubits)
 
+    # Reservoir layers
     for layer in range(layers):
         for q in range(qubits):
             base_rx, base_rz = reservoir[layer][q]
             injection = 0.35 * feature_angle(q + layer)
-            apply_rx(state, q, base_rx + injection)
-            apply_rz(state, q, base_rz - 0.25 * injection)
+            qc.rx(base_rx + injection, q)
+            qc.rz(base_rz - 0.25 * injection, q)
         if qubits > 1:
             for q in range(qubits):
-                apply_cz(state, q, (q + 1) % qubits)
+                qc.cz(q, (q + 1) % qubits)
 
-    return z_expectations(state, qubits)
+    # Measure all qubits in the Z basis
+    qc.measure(range(qubits), range(qubits))
+    return qc
+
+
+def compute_z_expectations(counts, qubits: int, shots: int):
+    """Compute <Z> expectation for each qubit from measurement counts."""
+    expectations = [0.0] * qubits
+    for bitstring, count in counts.items():
+        # bitstring is e.g. '101' where bit 0 is qubit 0 (little-endian from Qiskit)
+        for q in range(qubits):
+            bit_val = int(bitstring[q])
+            expectations[q] += count * (1.0 - 2.0 * bit_val)
+    return [e / shots for e in expectations]
+
+
+def process_row(simulator, values, start: int, cols: int, qubits: int, layers: int, reservoir, shots: int):
+    """Run one row through the quantum reservoir and return Z expectations."""
+    qc = build_circuit(values, start, cols, qubits, layers, reservoir)
+    result = simulator.run(qc, shots=shots).result()
+    counts = result.get_counts()
+    return compute_z_expectations(counts, qubits, shots)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--qrc-layers", type=int, default=2)
+    parser.add_argument("--shots", type=int, default=8192,
+                        help="Number of shots for Aer simulator measurements")
     args, _ = parser.parse_known_args()
 
     if args.qrc_layers < 1:
         return 1
+
+    simulator = AerSimulator(method="statevector", max_parallel_threads=1)
 
     stdin = sys.stdin.buffer
     stdout = sys.stdout.buffer
@@ -197,7 +175,7 @@ def main() -> int:
         offset = 0
         for _ in range(rows):
             expectations.extend(
-                process_row(vals, offset, cols, qubits, args.qrc_layers, reservoir)
+                process_row(simulator, vals, offset, cols, qubits, args.qrc_layers, reservoir, args.shots)
             )
             offset += cols
 
