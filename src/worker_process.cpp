@@ -35,7 +35,7 @@ private:
 WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath)
 {
     int toChild[2], fromChild[2];
-    auto close_pipe_pair = [](int (&fds)[2])
+    const auto close_pipe_pair = [](int (&fds)[2])
     {
         close(fds[0]);
         close(fds[1]);
@@ -90,11 +90,11 @@ WorkerProcessImpl::~WorkerProcessImpl()
 
 bool WorkerProcessImpl::write_exact(const void *buf, std::size_t len)
 {
-    auto p = static_cast<const char *>(buf);
+    const auto *p = static_cast<const char *>(buf);
     std::size_t written = 0;
     while (written < len)
     {
-        ssize_t n = write(childInFd_, p + written, len - written);
+        const ssize_t n = write(childInFd_, p + written, len - written);
         if (n < 0 && errno != EINTR)
             return false;
         if (n > 0)
@@ -105,11 +105,11 @@ bool WorkerProcessImpl::write_exact(const void *buf, std::size_t len)
 
 bool WorkerProcessImpl::read_exact(void *buf, std::size_t len)
 {
-    auto p = static_cast<char *>(buf);
+    auto *p = static_cast<char *>(buf);
     std::size_t got = 0;
     while (got < len)
     {
-        ssize_t n = read(childOutFd_, p + got, len - got);
+        const ssize_t n = read(childOutFd_, p + got, len - got);
         if (n < 0 && errno != EINTR)
             return false;
         if (n > 0)
@@ -120,15 +120,15 @@ bool WorkerProcessImpl::read_exact(void *buf, std::size_t len)
 
 std::vector<double> WorkerProcessImpl::process_chunk(std::size_t taskId, const DataView &input, std::size_t &resultCols)
 {
-    MessageHeader req{static_cast<uint32_t>(Protocol::Magic), kVersion,
-                      static_cast<uint16_t>(MessageType::Task),
-                      static_cast<uint64_t>(taskId),
-                      static_cast<uint64_t>(input.rows),
-                      static_cast<uint64_t>(input.cols)};
+    const MessageHeader req{static_cast<uint32_t>(Protocol::Magic), kVersion,
+                            static_cast<uint16_t>(MessageType::Task),
+                            static_cast<uint64_t>(taskId),
+                            static_cast<uint64_t>(input.rows),
+                            static_cast<uint64_t>(input.cols)};
     if (!write_exact(&req, sizeof(req)))
         throw std::runtime_error("Failed to write task header to worker.");
 
-    auto total = input.rows * input.cols;
+    const std::size_t total = input.rows * input.cols;
     if (total > 0 && !write_exact(input.data, total * sizeof(double)))
         throw std::runtime_error("Failed to write task payload to worker.");
 
@@ -151,7 +151,7 @@ std::vector<double> WorkerProcessImpl::process_chunk(std::size_t taskId, const D
         throw std::runtime_error("Unexpected message type from worker.");
 
     resultCols = resp.cols;
-    auto nValues = resp.rows * resultCols;
+    const std::size_t nValues = resp.rows * resultCols;
     std::vector<double> results(nValues);
     if (nValues > 0 && !read_exact(results.data(), nValues * sizeof(double)))
         throw std::runtime_error("Failed to read results from worker.");
@@ -163,9 +163,16 @@ std::vector<double> WorkerProcessImpl::process_chunk(std::size_t taskId, const D
 std::vector<double> Worker::operator()(std::size_t taskId, const DataView &input, std::size_t &resultCols) const
 {
     static thread_local std::unique_ptr<WorkerProcessImpl> impl;
+    static thread_local std::string activePythonExe;
+    static thread_local std::string activeScriptPath;
 
-    if (!impl)
+    const bool configChanged = (activePythonExe != pythonExe) || (activeScriptPath != scriptPath);
+    if (!impl || configChanged)
+    {
         impl = std::make_unique<WorkerProcessImpl>(pythonExe, scriptPath);
+        activePythonExe = pythonExe;
+        activeScriptPath = scriptPath;
+    }
 
     return impl->process_chunk(taskId, input, resultCols);
 }

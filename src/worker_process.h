@@ -1,65 +1,103 @@
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <future>
+#include <stdexcept>
 #include <string>
 #include <sys/types.h>
+#include <utility>
 #include <vector>
 
 #include "dataset.h"
 
-// Lightweight worker that processes data chunks via a Python subprocess.
-// Can be used with parallel_map utility for easy parallelization.
+// Lightweight function object that processes one chunk via a Python subprocess.
 struct Worker
 {
     std::string pythonExe;
     std::string scriptPath;
 
-    // Process one chunk of data and return results.
+    // Processes one chunk and writes output column count into resultCols.
     std::vector<double> operator()(std::size_t taskId, const DataView &input, std::size_t &resultCols) const;
 };
 
-// Generic parallel map: apply a worker function to data chunks.
-// WorkerFn: callable that takes (taskId, DataView, resultCols) and returns std::vector<double>
+// Applies worker(taskId, chunk, resultCols) to row chunks in parallel.
+// Returns the full output matrix flattened in row-major order.
 template <typename WorkerFn>
 std::vector<double> parallel_map(
     const WorkerFn &worker,
     const DataView &fullData,
     std::size_t numWorkers)
 {
-    numWorkers = std::min(numWorkers, fullData.rows);
-
-    std::vector<std::future<std::pair<std::size_t, std::vector<double>>>> futures;
-    futures.reserve(numWorkers);
-
-    // Launch all workers
-    for (std::size_t w = 0; w < numWorkers; ++w)
+    if (fullData.rows == 0)
     {
-        auto begin = (w * fullData.rows) / numWorkers;
-        auto end = ((w + 1) * fullData.rows) / numWorkers;
-
-        futures.push_back(std::async(std::launch::async, [&, begin, end, w]()
-                                     {
-            std::size_t resultCols = 0;
-            DataView chunk{fullData.data + begin * fullData.cols, end - begin, fullData.cols};
-            auto values = worker(w, chunk, resultCols);
-            return std::make_pair(begin * resultCols, std::move(values)); }));
+        return {};
+    }
+    if (numWorkers == 0)
+    {
+        throw std::invalid_argument("parallel_map requires numWorkers > 0.");
     }
 
-    // Collect results
-    std::size_t totalResultCols = 0;
-    std::vector<double> results;
+    const std::size_t workers = std::min(numWorkers, fullData.rows);
 
-    for (std::size_t w = 0; w < numWorkers; ++w)
+    struct ChunkResult
     {
-        auto [offset, values] = futures[w].get();
+        std::size_t beginRow{};
+        std::size_t rowCount{};
+        std::size_t resultCols{};
+        std::vector<double> values;
+    };
+
+    std::vector<std::future<ChunkResult>> futures;
+    futures.reserve(workers);
+
+    for (std::size_t w = 0; w < workers; ++w)
+    {
+        const std::size_t beginRow = (w * fullData.rows) / workers;
+        const std::size_t endRow = ((w + 1) * fullData.rows) / workers;
+
+        futures.emplace_back(std::async(std::launch::async, [&, beginRow, endRow, w]()
+                                        {
+            const DataView chunk{fullData.data + beginRow * fullData.cols, endRow - beginRow, fullData.cols};
+            std::size_t resultCols = 0;
+            auto values = worker(w, chunk, resultCols);
+            return ChunkResult{beginRow, endRow - beginRow, resultCols, std::move(values)}; }));
+    }
+
+    std::vector<double> results;
+    std::size_t commonResultCols = 0;
+
+    for (std::future<ChunkResult> &future : futures)
+    {
+        ChunkResult chunk = future.get();
+        if (chunk.rowCount == 0)
+        {
+            continue;
+        }
+
         if (results.empty())
         {
-            totalResultCols = values.size() / (fullData.rows / numWorkers);
-            results.resize(fullData.rows * totalResultCols);
+            commonResultCols = chunk.resultCols;
+            if (commonResultCols == 0)
+            {
+                throw std::runtime_error("Worker returned zero output columns.");
+            }
+            results.resize(fullData.rows * commonResultCols);
         }
-        std::copy(values.begin(), values.end(), results.begin() + offset);
+
+        if (chunk.resultCols != commonResultCols)
+        {
+            throw std::runtime_error("Workers returned inconsistent output column counts.");
+        }
+
+        const std::size_t expectedValues = chunk.rowCount * chunk.resultCols;
+        if (chunk.values.size() != expectedValues)
+        {
+            throw std::runtime_error("Worker returned an unexpected value count.");
+        }
+
+        const auto offset = static_cast<std::ptrdiff_t>(chunk.beginRow * commonResultCols);
+        std::copy(chunk.values.begin(), chunk.values.end(), results.begin() + offset);
     }
 
     return results;
