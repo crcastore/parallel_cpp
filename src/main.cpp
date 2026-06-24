@@ -42,8 +42,15 @@ struct WorkerChunkResult
 {
     std::size_t beginRow{};
     std::size_t rowCount{};
-    std::size_t expectationCols{};
-    std::vector<double> expectations{};
+    std::size_t resultCols{};
+    std::vector<double> values{};
+};
+
+struct DatasetResult
+{
+    std::size_t rows{};
+    std::size_t cols{};
+    std::vector<double> values{};
 };
 
 Config parse_args(int argc, char **argv)
@@ -104,24 +111,90 @@ Config parse_args(int argc, char **argv)
 }
 
 WorkerChunkResult process_worker_chunk(
-    const Config &cfg,
+    const std::string &pythonExe,
+    const std::string &workerCommand,
     const RowMajorDataset &dataset,
     std::size_t workerId,
     std::size_t workerCount)
 {
-    WorkerProcess worker(cfg.pythonExe, cfg.workerScript);
+    WorkerProcess worker(pythonExe, workerCommand);
 
-    const std::size_t beginRow = (workerId * cfg.rows) / workerCount;
-    const std::size_t endRow = ((workerId + 1) * cfg.rows) / workerCount;
+    const std::size_t beginRow = (workerId * dataset.rows()) / workerCount;
+    const std::size_t endRow = ((workerId + 1) * dataset.rows()) / workerCount;
     const std::size_t rowCount = endRow - beginRow;
 
-    std::size_t expectationCols{};
-    std::vector<double> expectations = worker.process_chunk(
+    std::size_t resultCols{};
+    std::vector<double> values = worker.process_chunk(
         workerId,
-        DataView{dataset.row_ptr(beginRow), rowCount, cfg.cols},
-        expectationCols);
+        DataView{dataset.row_ptr(beginRow), rowCount, dataset.cols()},
+        resultCols);
 
-    return WorkerChunkResult{beginRow, rowCount, expectationCols, std::move(expectations)};
+    return WorkerChunkResult{beginRow, rowCount, resultCols, std::move(values)};
+}
+
+DatasetResult run_python_command_over_dataset(
+    const std::string &pythonExe,
+    const std::string &workerCommand,
+    const RowMajorDataset &dataset,
+    std::size_t requestedWorkers)
+{
+    if (requestedWorkers == 0)
+    {
+        throw std::runtime_error("worker count must be > 0.");
+    }
+    if (dataset.cols() == 0)
+    {
+        throw std::runtime_error("dataset columns must be > 0.");
+    }
+    if (dataset.rows() == 0)
+    {
+        return DatasetResult{};
+    }
+
+    const std::size_t workerCount = std::min(requestedWorkers, dataset.rows());
+
+    std::vector<std::future<WorkerChunkResult>> futures;
+    futures.reserve(workerCount);
+
+    for (std::size_t workerId = 0; workerId < workerCount; ++workerId)
+    {
+        futures.emplace_back(std::async(
+            std::launch::async,
+            [&, workerId]()
+            {
+                return process_worker_chunk(pythonExe, workerCommand, dataset, workerId, workerCount);
+            }));
+    }
+
+    std::size_t resultCols{};
+    std::vector<double> results;
+
+    for (auto &future : futures)
+    {
+        WorkerChunkResult chunk = future.get();
+
+        if (resultCols == 0)
+        {
+            resultCols = chunk.resultCols;
+            results.assign(dataset.rows() * resultCols, 0.0);
+        }
+        else if (resultCols != chunk.resultCols)
+        {
+            throw std::runtime_error("Inconsistent number of result columns from worker.");
+        }
+
+        for (std::size_t row = 0; row < chunk.rowCount; ++row)
+        {
+            const std::size_t srcBase = row * resultCols;
+            const std::size_t dstBase = (chunk.beginRow + row) * resultCols;
+            std::copy_n(
+                chunk.values.begin() + srcBase,
+                resultCols,
+                results.begin() + dstBase);
+        }
+    }
+
+    return DatasetResult{dataset.rows(), resultCols, std::move(results)};
 }
 
 RunResult run_once(
@@ -129,51 +202,19 @@ RunResult run_once(
     const RowMajorDataset &dataset,
     std::size_t requestedWorkers)
 {
-    const std::size_t workerCount = std::min(requestedWorkers, cfg.rows);
-
-    std::vector<std::future<WorkerChunkResult>> futures;
-    futures.reserve(workerCount);
+    const std::size_t workerCount = std::min(requestedWorkers, dataset.rows());
 
     const auto t0 = std::chrono::steady_clock::now();
-
-    for (std::size_t workerId = 0; workerId < workerCount; ++workerId)
-    {
-        futures.emplace_back(std::async(std::launch::async, [&, workerId]()
-                                        { return process_worker_chunk(cfg, dataset, workerId, workerCount); }));
-    }
-
-    std::size_t expectationCols{};
-    std::vector<double> expectationMatrix;
-
-    for (auto &future : futures)
-    {
-        WorkerChunkResult chunk = future.get();
-
-        if (expectationCols == 0)
-        {
-            expectationCols = chunk.expectationCols;
-            expectationMatrix.assign(cfg.rows * expectationCols, 0.0);
-        }
-        else if (expectationCols != chunk.expectationCols)
-        {
-            throw std::runtime_error("Inconsistent number of expectation columns from worker.");
-        }
-
-        for (std::size_t row = 0; row < chunk.rowCount; ++row)
-        {
-            const std::size_t srcBase = row * expectationCols;
-            const std::size_t dstBase = (chunk.beginRow + row) * expectationCols;
-            std::copy_n(
-                chunk.expectations.begin() + srcBase,
-                expectationCols,
-                expectationMatrix.begin() + dstBase);
-        }
-    }
+    const DatasetResult result = run_python_command_over_dataset(
+        cfg.pythonExe,
+        cfg.workerScript,
+        dataset,
+        requestedWorkers);
 
     const auto t1 = std::chrono::steady_clock::now();
     const double seconds = std::chrono::duration<double>(t1 - t0).count();
 
-    return RunResult{requestedWorkers, workerCount, expectationCols, seconds};
+    return RunResult{requestedWorkers, workerCount, result.cols, seconds};
 }
 
 int main(int argc, char **argv)
