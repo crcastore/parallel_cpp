@@ -5,12 +5,13 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <future>
 #include <iomanip>
 #include <iostream>
-#include <mutex>
 #include <random>
+#include <stdexcept>
 #include <string>
-#include <thread>
+#include <utility>
 #include <vector>
 
 #ifndef WORKER_SCRIPT_PATH
@@ -23,18 +24,26 @@ constexpr double kRandomMax = 1.0;
 
 struct Config
 {
-    std::size_t rows = 100000;
-    std::size_t cols = 6;
-    std::string pythonExe = "python3";
-    std::string workerScript = WORKER_SCRIPT_PATH;
+    std::size_t rows{100000};
+    std::size_t cols{6};
+    std::string pythonExe{"python3"};
+    std::string workerScript{WORKER_SCRIPT_PATH};
 };
 
 struct RunResult
 {
-    std::size_t requestedWorkers = 0;
-    std::size_t usedWorkers = 0;
-    std::size_t expectationCols = 0;
-    double seconds = 0.0;
+    std::size_t requestedWorkers{};
+    std::size_t usedWorkers{};
+    std::size_t expectationCols{};
+    double seconds{};
+};
+
+struct WorkerChunkResult
+{
+    std::size_t beginRow{};
+    std::size_t rowCount{};
+    std::size_t expectationCols{};
+    std::vector<double> expectations{};
 };
 
 Config parse_args(int argc, char **argv)
@@ -94,87 +103,77 @@ Config parse_args(int argc, char **argv)
     return cfg;
 }
 
+WorkerChunkResult process_worker_chunk(
+    const Config &cfg,
+    const RowMajorDataset &dataset,
+    std::size_t workerId,
+    std::size_t workerCount)
+{
+    WorkerProcess worker(cfg.pythonExe, cfg.workerScript);
+
+    const std::size_t beginRow = (workerId * cfg.rows) / workerCount;
+    const std::size_t endRow = ((workerId + 1) * cfg.rows) / workerCount;
+    const std::size_t rowCount = endRow - beginRow;
+
+    std::size_t expectationCols{};
+    std::vector<double> expectations = worker.process_chunk(
+        workerId,
+        DataView{dataset.row_ptr(beginRow), rowCount, cfg.cols},
+        expectationCols);
+
+    return WorkerChunkResult{beginRow, rowCount, expectationCols, std::move(expectations)};
+}
+
 RunResult run_once(
     const Config &cfg,
     const RowMajorDataset &dataset,
     std::size_t requestedWorkers)
 {
-    const std::size_t threadCount = std::min(requestedWorkers, cfg.rows);
+    const std::size_t workerCount = std::min(requestedWorkers, cfg.rows);
 
-    std::vector<double> expectationMatrix;
-    std::size_t expectationCols = 0;
-    std::mutex expectationMetaMutex;
-
-    std::vector<std::thread> threads;
-    threads.reserve(threadCount);
-    std::vector<std::string> errors(threadCount);
+    std::vector<std::future<WorkerChunkResult>> futures;
+    futures.reserve(workerCount);
 
     const auto t0 = std::chrono::steady_clock::now();
 
-    for (std::size_t workerId = 0; workerId < threadCount; ++workerId)
+    for (std::size_t workerId = 0; workerId < workerCount; ++workerId)
     {
-        threads.emplace_back([&, workerId]()
-                             {
-            try {
-                WorkerProcess worker(cfg.pythonExe, cfg.workerScript);
-                if (!worker.start()) {
-                    throw std::runtime_error("Failed to start Python worker process.");
-                }
-
-                // Divide rows evenly among workers using contiguous slices.
-                const std::size_t beginRow = (workerId * cfg.rows) / threadCount;
-                const std::size_t endRow = ((workerId + 1) * cfg.rows) / threadCount;
-                const std::size_t rowCount = endRow - beginRow;
-
-                std::size_t chunkResultCols = 0;
-                std::vector<double> chunkResult = worker.process_chunk(
-                    workerId,
-                    DataView{dataset.row_ptr(beginRow), rowCount, cfg.cols},
-                    chunkResultCols
-                );
-
-                {
-                    std::lock_guard<std::mutex> lock(expectationMetaMutex);
-                    if (expectationCols == 0) {
-                        expectationCols = chunkResultCols;
-                        expectationMatrix.assign(cfg.rows * expectationCols, 0.0);
-                    } else if (expectationCols != chunkResultCols) {
-                        throw std::runtime_error("Inconsistent number of expectation columns from worker.");
-                    }
-                }
-
-                for (std::size_t i = 0; i < rowCount; ++i) {
-                    const std::size_t outRow = beginRow + i;
-                    const std::size_t dstBase = outRow * expectationCols;
-                    const std::size_t srcBase = i * expectationCols;
-                    for (std::size_t j = 0; j < expectationCols; ++j) {
-                        expectationMatrix[dstBase + j] = chunkResult[srcBase + j];
-                    }
-                }
-
-                worker.stop();
-            } catch (const std::exception& ex) {
-                errors[workerId] = ex.what();
-            } });
+        futures.emplace_back(std::async(std::launch::async, [&, workerId]()
+                                        { return process_worker_chunk(cfg, dataset, workerId, workerCount); }));
     }
 
-    for (auto &t : threads)
-    {
-        t.join();
-    }
+    std::size_t expectationCols{};
+    std::vector<double> expectationMatrix;
 
-    for (const auto &err : errors)
+    for (auto &future : futures)
     {
-        if (!err.empty())
+        WorkerChunkResult chunk = future.get();
+
+        if (expectationCols == 0)
         {
-            throw std::runtime_error(err);
+            expectationCols = chunk.expectationCols;
+            expectationMatrix.assign(cfg.rows * expectationCols, 0.0);
+        }
+        else if (expectationCols != chunk.expectationCols)
+        {
+            throw std::runtime_error("Inconsistent number of expectation columns from worker.");
+        }
+
+        for (std::size_t row = 0; row < chunk.rowCount; ++row)
+        {
+            const std::size_t srcBase = row * expectationCols;
+            const std::size_t dstBase = (chunk.beginRow + row) * expectationCols;
+            std::copy_n(
+                chunk.expectations.begin() + srcBase,
+                expectationCols,
+                expectationMatrix.begin() + dstBase);
         }
     }
 
     const auto t1 = std::chrono::steady_clock::now();
     const double seconds = std::chrono::duration<double>(t1 - t0).count();
 
-    return RunResult{requestedWorkers, threadCount, expectationCols, seconds};
+    return RunResult{requestedWorkers, workerCount, expectationCols, seconds};
 }
 
 int main(int argc, char **argv)

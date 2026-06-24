@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
 
 // Protocol definitions are now centralized in protocol.h
 #include "protocol.h"
@@ -16,6 +17,10 @@ WorkerProcess::WorkerProcess(std::string pythonExe, std::string scriptPath)
     : pythonExe_(std::move(pythonExe)),
       scriptPath_(std::move(scriptPath))
 {
+    if (!start())
+    {
+        throw std::runtime_error("Failed to start Python worker process.");
+    }
 }
 
 WorkerProcess::~WorkerProcess()
@@ -210,7 +215,8 @@ std::vector<double> WorkerProcess::handle_response(
     const DataView &input,
     std::size_t &resultCols)
 {
-    switch (static_cast<MessageType>(response.type))
+    const auto message_type = static_cast<MessageType>(response.type);
+    switch (message_type)
     {
     case MessageType::Error:
     {

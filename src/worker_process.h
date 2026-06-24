@@ -18,7 +18,6 @@ public:
     WorkerProcess(const WorkerProcess &) = delete;
     WorkerProcess &operator=(const WorkerProcess &) = delete;
 
-    bool start();
     bool stop();
 
     std::vector<double> process_chunk(
@@ -27,6 +26,7 @@ public:
         std::size_t &resultCols);
 
 private:
+    bool start();
     bool write_exact(const void *buf, std::size_t len);
     bool read_exact(void *buf, std::size_t len);
     std::vector<double> handle_response(
@@ -34,7 +34,8 @@ private:
         const DataView &input,
         std::size_t &resultCols);
 
-    std::string pythonExe_{}, scriptPath_;
+    std::string pythonExe_{};
+    std::string scriptPath_{};
     pid_t childPid_{-1};
     int childInFd_{-1};
     int childOutFd_{-1};
