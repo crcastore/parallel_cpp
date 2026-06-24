@@ -24,8 +24,8 @@ struct MessageHeader
     std::uint16_t type{};
     std::uint64_t taskId{};
     std::uint64_t rows{};
-    std::uint64_t colsOrAux{};
+    std::uint64_t cols{};
 };
 #pragma pack(pop)
 
-static_assert(sizeof(MessageHeader) == 32, "Unexpected MessageHeader size");
+static_assert(sizeof(MessageHeader) == 32);

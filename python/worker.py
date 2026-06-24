@@ -17,8 +17,12 @@ import math
 import struct
 import sys
 
+import numpy as np
 from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
+
+# Seed for reproducibility
+np.random.seed(42)
 
 MAGIC = 0x50595043  # "CPYP"
 VERSION = 1
@@ -123,14 +127,15 @@ def process_row(simulator, values, start: int, cols: int, qubits: int, layers: i
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--qrc-layers", type=int, default=2)
-    parser.add_argument("--shots", type=int, default=8192,
+    parser.add_argument("--shots", type=int, default=65536,
                         help="Number of shots for Aer simulator measurements")
     args, _ = parser.parse_known_args()
 
     if args.qrc_layers < 1:
         return 1
 
-    simulator = AerSimulator(method="statevector", max_parallel_threads=1)
+    # Create simulator with fixed seed for reproducible measurements
+    simulator = AerSimulator(method="statevector", max_parallel_threads=1, seed_simulator=42)
 
     stdin = sys.stdin.buffer
     stdout = sys.stdout.buffer
