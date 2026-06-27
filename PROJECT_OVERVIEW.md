@@ -41,6 +41,8 @@ This project demonstrates a parallel processing pipeline where a C++ executable 
   * Payloads are raw `double` arrays (`rows × cols` for tasks, `rows × expectation_cols` for results).
   * `Quit` carries only the header and no payload.
 
+  * Example flow: the C++ process sends a `Task` header for one chunk, immediately followed by that chunk's raw row-major doubles. The worker reads the header, knows how many bytes to expect from `rows × cols`, runs the circuit simulation row by row, and sends a `Result` header back with the same `taskId`. The C++ side uses that echoed `taskId` and the reported output shape to copy the returned doubles into the correct place in the overall matrix. If something goes wrong, the worker sends an `Error` message instead, and the C++ side reads the UTF-8 error text after the header.
+
 ---
 
 ## Data Flow

@@ -50,6 +50,8 @@ Command-line options:
 - The C++ side validates `magic`, `version`, and `taskId` before consuming a reply payload.
 - The Python worker reads and writes the same layout using `struct.pack` / `struct.unpack` with `HEADER_FMT = "<IHHQQQ"`.
 
+Example: when C++ sends a `Task`, it writes the 32-byte header first, then streams the input chunk as raw doubles. The Python worker reads that header, checks that the message is valid, uses `rows` and `cols` to know exactly how many doubles to consume, runs the simulation for each row, and sends back a `Result` header with the same `taskId` plus the output matrix. That lets the C++ side match the reply to the original request and place the returned values in the right slice of the final result buffer.
+
 ## Tests
 
 - `./build/unit_tests`

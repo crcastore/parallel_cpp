@@ -58,6 +58,15 @@ Payload rules:
 
 The C++ transport validates `magic`, `version`, and `taskId` on replies before reading the payload. The Python worker uses the same header layout via `struct.pack` and `struct.unpack` with `HEADER_FMT = "<IHHQQQ"`.
 
+Example flow:
+
+1. C++ creates a `Task` header for a chunk of rows and writes it to the worker pipe.
+2. C++ immediately writes the chunk's raw doubles in row-major order.
+3. Python reads the 32-byte header, uses `rows` and `cols` to know how much data to read, and reconstructs the input matrix.
+4. Python runs the simulation for each row and then writes back a `Result` header with the same `taskId`.
+5. Python appends the output doubles, and C++ copies them into the correct slice of the final output buffer.
+6. If Python cannot process the chunk, it sends an `Error` header plus UTF-8 text instead of a `Result` payload.
+
 ## Parallel API Surface
 
 `Worker` is a callable object:
