@@ -33,8 +33,13 @@ This project demonstrates a parallel processing pipeline where a C++ executable 
 
 * **Binary protocol** (little‑endian)
   * Header format: `<IHHQQQ>` → `magic`, `version`, `type`, `taskId`, `rows`, `cols`.
-  * Types: `TASK = 1`, `RESULT = 3`, `QUIT = 2`, `ERROR = 4`.
+  * `magic` is the four-byte constant `0x50595043` (`CPYP`), and `version` is currently `1`.
+  * `taskId` is echoed by the worker so the C++ side can match requests and responses.
+  * For `Task`, `rows` is the number of dataset rows in the chunk and `cols` is the input column count.
+  * For `Result`, `rows` is the number of output rows and `cols` is the output column count returned by the worker.
+  * For `Error`, `rows` stores the UTF-8 error-message byte length and `cols` is used as an auxiliary length field.
   * Payloads are raw `double` arrays (`rows × cols` for tasks, `rows × expectation_cols` for results).
+  * `Quit` carries only the header and no payload.
 
 ---
 
@@ -45,6 +50,8 @@ This project demonstrates a parallel processing pipeline where a C++ executable 
 4. **Quantum simulation** – Worker builds a circuit, applies feature encoding plus reservoir layers with `RY`, `RZ`, `RX`, and `CZ`, then computes Z-expectations for each qubit.
 5. **Result transmission** – Worker writes a result header + `rows_slice × expectation_cols` doubles back to the master.
 6. **Aggregation** – Master collects all slices, assembles the full expectation matrix, and discards it after timing.
+
+The transport is strictly stream-based: each header is written first, followed immediately by the fixed-size payload for that message type. The worker process exits on `Quit` or EOF, and the C++ side sends `Quit` during destruction after it has finished reading results.
 
 ---
 

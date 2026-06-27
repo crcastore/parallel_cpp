@@ -40,6 +40,24 @@ Message types:
 
 The current wire format is little-endian and matches `<IHHQQQ>` in Python.
 
+Header fields:
+
+- `magic` = `0x50595043` (`CPYP`), used as a fast sanity check.
+- `version` = `1`, so both sides can reject incompatible protocol changes early.
+- `type` = `Task`, `Quit`, `Result`, or `Error`.
+- `taskId` = request identifier; responses must echo the same value.
+- `rows` = row count for normal messages, or error-message byte length for `Error`.
+- `cols` = input column count for `Task`, output column count for `Result`, or auxiliary length for `Error`.
+
+Payload rules:
+
+- `Task` payloads are `rows * cols` `double` values in row-major order.
+- `Result` payloads are `rows * resultCols` `double` values in row-major order.
+- `Quit` has no payload.
+- `Error` appends `rows` bytes of UTF-8 text immediately after the header.
+
+The C++ transport validates `magic`, `version`, and `taskId` on replies before reading the payload. The Python worker uses the same header layout via `struct.pack` and `struct.unpack` with `HEADER_FMT = "<IHHQQQ"`.
+
 ## Parallel API Surface
 
 `Worker` is a callable object:

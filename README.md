@@ -37,10 +37,18 @@ Command-line options:
 ## Binary Protocol
 
 - Header format is little-endian: `<IHHQQQ>`.
-- Fields are `magic`, `version`, `type`, `taskId`, `rows`, and `cols`.
-- `Task` messages carry raw `float64` row-major payloads with `rows * cols` doubles.
-- `Result` messages carry `rows * resultCols` doubles in row-major order.
-- `Quit` and `Error` messages use the same header, with `Error` carrying a UTF-8 payload after the header.
+- `magic` (`uint32_t`): `0x50595043`, the ASCII bytes `CPYP`.
+- `version` (`uint16_t`): protocol version, currently `1`.
+- `type` (`uint16_t`): `1 = Task`, `2 = Quit`, `3 = Result`, `4 = Error`.
+- `taskId` (`uint64_t`): opaque request identifier echoed back by the worker.
+- `rows` (`uint64_t`): row count for the payload, or error-message byte count for `Error`.
+- `cols` (`uint64_t`): input column count for `Task`, output column count for `Result`, and auxiliary length for `Error`.
+- `Task` messages are followed by `rows * cols` raw `float64` values in row-major order.
+- `Result` messages are followed by `rows * resultCols` raw `float64` values in row-major order.
+- `Quit` carries no payload and is used during worker shutdown.
+- `Error` carries `rows` bytes of UTF-8 text immediately after the header.
+- The C++ side validates `magic`, `version`, and `taskId` before consuming a reply payload.
+- The Python worker reads and writes the same layout using `struct.pack` / `struct.unpack` with `HEADER_FMT = "<IHHQQQ"`.
 
 ## Tests
 
