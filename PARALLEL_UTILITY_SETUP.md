@@ -8,13 +8,13 @@ The current implementation focuses on:
 
 - Simple process-based parallelism.
 - A stable binary IPC protocol between C++ and Python.
-- Deterministic test behavior (seeded inputs and seeded simulator in Python worker).
+- Deterministic test behavior (seeded inputs and seeded simulator in the Python worker).
 
 ## High-Level Architecture
 
 1. C++ builds a row-major dataset.
 2. C++ splits rows into chunks.
-3. Each chunk is sent to a Python worker process.
+3. Each chunk is sent to a dedicated Python worker subprocess.
 4. Python processes a chunk and returns row-major results.
 5. C++ reassembles all chunk outputs into one contiguous result buffer.
 
@@ -37,6 +37,8 @@ Message types:
 - `Quit`: C++ -> Python, tells worker to exit.
 - `Result`: Python -> C++, includes output shape and output doubles.
 - `Error`: Python -> C++, includes UTF-8 error text.
+
+The current wire format is little-endian and matches `<IHHQQQ>` in Python.
 
 ## Parallel API Surface
 
@@ -64,6 +66,7 @@ This keeps call sites functional in style: pass a callable + data view + worker 
 Build:
 
 ```bash
+cmake -S . -B build
 cmake --build build -j
 ```
 
@@ -93,6 +96,13 @@ Run benchmark with Linux worker CPU pinning enabled:
 ./build/parallel_python --rows 3000 --cols 6 \
     --pin-workers-single-cpu --cpu-start 0 --cpu-stride 1
 ```
+
+Relevant CLI options in the current build:
+
+- `--rows` and `--cols` are required.
+- `--python` overrides the Python executable.
+- `--worker-script` overrides the worker script path.
+- `--pin-workers-single-cpu`, `--cpu-start`, and `--cpu-stride` control Linux-only affinity behavior.
 
 ## Notes on Determinism and Performance
 
