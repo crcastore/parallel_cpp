@@ -10,6 +10,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #ifndef WORKER_SCRIPT_PATH
@@ -45,7 +46,7 @@ Args parse_args(int argc, char **argv)
     Args args;
     for (int i = 1; i < argc; ++i)
     {
-        const std::string a = argv[i];
+        const std::string_view a = argv[i];
         if (a == "--help")
         {
             print_usage();

@@ -169,7 +169,7 @@ std::vector<double> WorkerProcessImpl::process_chunk(std::size_t taskId, const D
     if (resp.type == static_cast<uint16_t>(MessageType::Error))
     {
         std::string errMsg(resp.rows, '\0');
-        if (!read_exact(&errMsg[0], resp.rows))
+        if (!read_exact(errMsg.data(), resp.rows))
             throw std::runtime_error("Failed to read error message from worker.");
         throw std::runtime_error("Worker error: " + errMsg);
     }
