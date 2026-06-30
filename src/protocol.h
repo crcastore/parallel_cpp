@@ -28,4 +28,4 @@ struct MessageHeader
 };
 #pragma pack(pop)
 
-static_assert(sizeof(MessageHeader) == 32);
+static_assert(sizeof(MessageHeader) == 32, "MessageHeader must be 32 bytes");
