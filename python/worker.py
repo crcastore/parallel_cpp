@@ -127,8 +127,6 @@ def process_row(simulator, values, start: int, cols: int, qubits: int, layers: i
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--qrc-layers", type=int, default=2)
-    parser.add_argument("--shots", type=int, default=65536,
-                        help="Number of shots for Aer simulator measurements")
     args, _ = parser.parse_known_args()
 
     if args.qrc_layers < 1:
@@ -178,9 +176,10 @@ def main() -> int:
         reservoir = build_reservoir_params(qubits, args.qrc_layers, QRC_SEED)
         expectations = []
         offset = 0
+        shots = 1000
         for _ in range(rows):
             expectations.extend(
-                process_row(simulator, vals, offset, cols, qubits, args.qrc_layers, reservoir, args.shots)
+                process_row(simulator, vals, offset, cols, qubits, args.qrc_layers, reservoir, shots)
             )
             offset += cols
 
