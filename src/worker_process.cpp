@@ -10,13 +10,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#ifdef __linux__
-#include <sched.h>
-#endif
-
 #include "protocol.h"
-
-// Internal: stateful worker process manager
+// CPU pinning support removed; no platform-specific scheduler headers needed.
 class WorkerProcessImpl
 {
 public:
@@ -61,28 +56,7 @@ WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::st
 
     if (childPid_ == 0)
     {
-#ifdef __linux__
-        if (cpuToPin >= 0)
-        {
-            const long cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
-            if (cpuCount <= 0)
-            {
-                _exit(126);
-            }
-
-            cpu_set_t cpuset;
-            CPU_ZERO(&cpuset);
-            CPU_SET(static_cast<int>(cpuToPin % static_cast<int>(cpuCount)), &cpuset);
-
-            if (sched_setaffinity(0, sizeof(cpuset), &cpuset) != 0)
-            {
-                _exit(126);
-            }
-        }
-#else
-        (void)cpuToPin;
-#endif
-
+        // CPU pinning has been removed; the child process will run without explicit affinity settings.
         dup2(toChild[0], STDIN_FILENO);
         dup2(fromChild[1], STDOUT_FILENO);
         for (int fd : {toChild[0], toChild[1], fromChild[0], fromChild[1]})
@@ -192,39 +166,18 @@ std::vector<double> Worker::operator()(std::size_t taskId, const DataView &input
     static thread_local std::unique_ptr<WorkerProcessImpl> impl;
     static thread_local std::string activePythonExe;
     static thread_local std::string activeScriptPath;
-    static thread_local bool activePinWorkersToSingleCpu = false;
-    static thread_local std::size_t activeCpuStart = 0;
-    static thread_local std::size_t activeCpuStride = 1;
-    static thread_local int activeCpuToPin = -1;
 
-    int desiredCpuToPin = -1;
-    if (pinWorkersToSingleCpu)
-    {
-        const std::size_t candidate = cpuStart + taskId * cpuStride;
-        if (candidate > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-        {
-            throw std::runtime_error("Requested CPU index exceeds supported range.");
-        }
-        desiredCpuToPin = static_cast<int>(candidate);
-    }
-
+    // No pinning logic needed; always use the same configuration for the worker process.
     const bool configChanged =
         (activePythonExe != pythonExe) ||
-        (activeScriptPath != scriptPath) ||
-        (activePinWorkersToSingleCpu != pinWorkersToSingleCpu) ||
-        (activeCpuStart != cpuStart) ||
-        (activeCpuStride != cpuStride) ||
-        (activeCpuToPin != desiredCpuToPin);
+        (activeScriptPath != scriptPath);
 
     if (!impl || configChanged)
     {
-        impl = std::make_unique<WorkerProcessImpl>(pythonExe, scriptPath, desiredCpuToPin);
+        // No CPU pinning, pass -1 to indicate no specific CPU.
+        impl = std::make_unique<WorkerProcessImpl>(pythonExe, scriptPath, -1);
         activePythonExe = pythonExe;
         activeScriptPath = scriptPath;
-        activePinWorkersToSingleCpu = pinWorkersToSingleCpu;
-        activeCpuStart = cpuStart;
-        activeCpuStride = cpuStride;
-        activeCpuToPin = desiredCpuToPin;
     }
 
     return impl->process_chunk(taskId, input, resultCols);

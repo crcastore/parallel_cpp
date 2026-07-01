@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(cpp_parallelism LANGUAGES CXX)
 
+# Find the Threads package for linking pthreads on platforms where it's needed
+find_package(Threads REQUIRED)
+
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -11,6 +14,9 @@ add_executable(parallel_python
 )
 
 target_include_directories(parallel_python PRIVATE src)
+
+# Link the Threads library to ensure std::thread works on older compilers
+target_link_libraries(parallel_python PRIVATE Threads::Threads)
 
 target_compile_definitions(parallel_python PRIVATE
     WORKER_SCRIPT_PATH="${CMAKE_SOURCE_DIR}/python/worker.py"
@@ -40,6 +46,8 @@ add_executable(unit_tests
 )
 target_include_directories(unit_tests PRIVATE src)
 target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
+# Ensure threading support for unit tests that may use std::thread or async
+target_link_libraries(unit_tests PRIVATE Threads::Threads)
 target_compile_options(unit_tests PRIVATE -O2 -g -fsanitize=address,undefined)
 target_link_options(unit_tests PRIVATE -fsanitize=address,undefined)
 add_test(NAME protocol_tests COMMAND unit_tests)
@@ -52,6 +60,7 @@ add_executable(worker_integration_test
 )
 target_include_directories(worker_integration_test PRIVATE src)
 target_link_libraries(worker_integration_test PRIVATE Catch2::Catch2WithMain)
+target_link_libraries(worker_integration_test PRIVATE Threads::Threads)
 target_compile_definitions(worker_integration_test PRIVATE
     WORKER_SCRIPT_PATH="${CMAKE_SOURCE_DIR}/python/worker.py")
 target_compile_options(worker_integration_test PRIVATE -O2 -g -fsanitize=address,undefined)
@@ -65,6 +74,7 @@ add_executable(worker_tsan_test
 )
 target_include_directories(worker_tsan_test PRIVATE src)
 target_link_libraries(worker_tsan_test PRIVATE Catch2::Catch2WithMain)
+target_link_libraries(worker_tsan_test PRIVATE Threads::Threads)
 target_compile_definitions(worker_tsan_test PRIVATE
     WORKER_SCRIPT_PATH="${CMAKE_SOURCE_DIR}/python/worker.py")
 target_compile_options(worker_tsan_test PRIVATE -O2 -g -fsanitize=thread,undefined)
