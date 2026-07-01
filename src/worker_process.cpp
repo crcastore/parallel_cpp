@@ -15,7 +15,7 @@
 class WorkerProcessImpl
 {
 public:
-    WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath, int cpuToPin);
+    WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath, std::size_t qrcLayers);
     ~WorkerProcessImpl();
 
     WorkerProcessImpl(const WorkerProcessImpl &) = delete;
@@ -32,7 +32,7 @@ private:
     int childOutFd_{-1};
 };
 
-WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath, int cpuToPin)
+WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::string &scriptPath, std::size_t qrcLayers)
 {
     int toChild[2], fromChild[2];
     const auto close_pipe_pair = [](int (&fds)[2])
@@ -61,7 +61,9 @@ WorkerProcessImpl::WorkerProcessImpl(const std::string &pythonExe, const std::st
         dup2(fromChild[1], STDOUT_FILENO);
         for (int fd : {toChild[0], toChild[1], fromChild[0], fromChild[1]})
             close(fd);
-        execlp(pythonExe.c_str(), pythonExe.c_str(), scriptPath.c_str(), static_cast<char *>(nullptr));
+        const std::string layersArg = std::to_string(qrcLayers);
+        execlp(pythonExe.c_str(), pythonExe.c_str(), scriptPath.c_str(),
+               "--qrc-layers", layersArg.c_str(), static_cast<char *>(nullptr));
         _exit(127);
     }
 
@@ -166,18 +168,20 @@ std::vector<double> Worker::operator()(std::size_t taskId, const DataView &input
     static thread_local std::unique_ptr<WorkerProcessImpl> impl;
     static thread_local std::string activePythonExe;
     static thread_local std::string activeScriptPath;
+    static thread_local std::size_t activeQrcLayers = 0;
 
-    // No pinning logic needed; always use the same configuration for the worker process.
+    // Rebuild the worker process whenever its configuration changes.
     const bool configChanged =
         (activePythonExe != pythonExe) ||
-        (activeScriptPath != scriptPath);
+        (activeScriptPath != scriptPath) ||
+        (activeQrcLayers != qrcLayers);
 
     if (!impl || configChanged)
     {
-        // No CPU pinning, pass -1 to indicate no specific CPU.
-        impl = std::make_unique<WorkerProcessImpl>(pythonExe, scriptPath, -1);
+        impl = std::make_unique<WorkerProcessImpl>(pythonExe, scriptPath, qrcLayers);
         activePythonExe = pythonExe;
         activeScriptPath = scriptPath;
+        activeQrcLayers = qrcLayers;
     }
 
     return impl->process_chunk(taskId, input, resultCols);

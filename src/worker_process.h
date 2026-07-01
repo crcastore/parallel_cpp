@@ -16,6 +16,7 @@ struct Worker
 {
     std::string pythonExe;
     std::string scriptPath;
+    std::size_t qrcLayers = 2;
 
     // Processes one chunk and writes output column count into resultCols.
     std::vector<double> operator()(std::size_t taskId, const DataView &input, std::size_t &resultCols) const;
